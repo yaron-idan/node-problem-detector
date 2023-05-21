@@ -20,11 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
-	"net/url"
-	"os"
-	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
@@ -33,12 +29,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/azure" // azure runtime, do not remove
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/clock"
 
 	"github.com/golang/glog"
 	"k8s.io/node-problem-detector/cmd/options"
-	"k8s.io/node-problem-detector/pkg/version"
 )
 
 // Client is the interface of problem client
@@ -67,25 +63,11 @@ type nodeProblemClient struct {
 func NewClientOrDie(npdo *options.NodeProblemDetectorOptions) Client {
 	c := &nodeProblemClient{clock: clock.RealClock{}}
 
-	// we have checked it is a valid URI after command line argument is parsed.:)
-	uri, _ := url.Parse(npdo.ApiServerOverride)
-
-	cfgOverrides := &clientcmd.ConfigOverrides{
-		ClusterInfo: api.Cluster{
-			Server: fmt.Sprintf("%s://%s", uri.Scheme, uri.Host),
-		},
-	}
-
-	apiConfig, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
+	restCfg, err := config.GetConfigWithContext("")
 	if err != nil {
 		panic(err)
 	}
-	cfg := clientcmd.NewDefaultClientConfig(*apiConfig, cfgOverrides)
-	restCfg, err := cfg.ClientConfig()
-	if err != nil {
-		panic(err)
-	}
-	restCfg.UserAgent = fmt.Sprintf("%s/%s", filepath.Base(os.Args[0]), version.Version())
+	restCfg.QPS = 1000 // avoid rate limit msgs
 
 	// TODO(random-liu): Set QPS Limit
 	c.client = clientset.NewForConfigOrDie(restCfg).CoreV1()
